@@ -117,6 +117,7 @@ setup(
         "matplotlib",
         "cython-bbox",
         "easydict",
+        "einops",
     ],
     cmdclass={"build_ext": torch.utils.cpp_extension.BuildExtension},
 )
