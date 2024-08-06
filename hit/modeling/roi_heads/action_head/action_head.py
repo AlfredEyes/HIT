@@ -29,7 +29,7 @@ class ROIActionHead(torch.nn.Module):
         # In training stage, boxes are from gt.
         # In testing stage, boxes are detected by human detector and proposals should be
         # enlarged boxes.
-        assert not (self.training and part_forward >= 0)
+        assert not (self.training and part_forward >= 0), "problem line 32 forward action_head.py"
 
         if part_forward == 1:
             boxes = extras["current_feat_p"]
@@ -65,21 +65,25 @@ class ROIActionHead(torch.nn.Module):
 
         action_logits = self.predictor(x)
 
-        if not self.training:
-            result = self.post_processor((action_logits,), boxes)
-            return result, {}, {}, {}
-
         box_num = action_logits.size(0)
         box_num = torch.as_tensor([box_num], dtype=torch.float32, device=action_logits.device)
         all_reduce(box_num, average=True)
+        
+        # if not self.training:
+        #     self.loss_evaluator._proposals = proposals
+        # loss_dict, loss_weight = self.loss_evaluator(
+        #     [action_logits], box_num.item(),
+        # )
 
-        loss_dict, loss_weight = self.loss_evaluator(
-            [action_logits], box_num.item(),
-        )
-
-        metric_dict = self.accuracy_evaluator(
-            [action_logits], proposals, box_num.item(),
-        )
+        # metric_dict = self.accuracy_evaluator(
+        #     [action_logits], proposals, box_num.item(),
+        # )
+        # if not self.training:
+        #     result = self.post_processor((action_logits,), boxes)
+        #     return (result, loss_dict, loss_weight, metric_dict)
+        if not self.training:
+            result = self.post_processor((action_logits,), boxes)
+            return (result, [], [], [])
 
         pooled_feature = prepare_pooled_feature(x_pooled, proposals)
         if x_objects is None:
@@ -93,7 +97,9 @@ class ROIActionHead(torch.nn.Module):
             keypoints_pooled_feature = prepare_pooled_feature(x_keypoints, split_kpts)
         
         if self.training:
-            pose_pooled_feature = prepare_pooled_feature(x_pose, keypoints)
+            pose_pooled_feature = None
+            if x_pose is not None:
+                pose_pooled_feature = prepare_pooled_feature(x_pose, keypoints)
         if part_forward==1:
             pose_pooled_feature = prepare_pooled_feature(x_pose, keypoints[1])
                  

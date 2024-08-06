@@ -190,29 +190,39 @@ class HITStructure(nn.Module):
         self.reduce_dropout = nn.Dropout(structure_cfg.DROPOUT)
 
         # Init Temporal 
-        self.mem_dim_reduce = nn.Conv3d(dim_mem, self.dim_inner, 1, bias)
-        init_layer(self.mem_dim_reduce, conv_init_std, bias)
+        if self.has_M:
+            self.mem_dim_reduce = nn.Conv3d(dim_mem, self.dim_inner, 1, bias)
+            init_layer(self.mem_dim_reduce, conv_init_std, bias)
         
         # Init Person
-        self.person_key_dim_reduce = nn.Conv3d(dim_person, self.dim_inner, 1, bias)  # reduce person key
-        init_layer(self.person_key_dim_reduce, conv_init_std, bias)
+        if self.has_P:
+            self.person_key_dim_reduce = nn.Conv3d(dim_person, self.dim_inner, 1, bias)  # reduce person key
+            init_layer(self.person_key_dim_reduce, conv_init_std, bias)
         
         # Init Object
-        self.object_dim_reduce = nn.Conv3d(dim_person, self.dim_inner, 1, bias)
-        init_layer(self.object_dim_reduce, conv_init_std, bias)
+        if self.has_O:
+            self.object_dim_reduce = nn.Conv3d(dim_person, self.dim_inner, 1, bias)
+            init_layer(self.object_dim_reduce, conv_init_std, bias)
         
         # Init Hand
-        self.hand_dim_reduce = nn.Conv3d(dim_person, self.dim_inner, 1, bias)
-        init_layer(self.hand_dim_reduce, conv_init_std, bias)
+        if self.has_H:
+            self.hand_dim_reduce = nn.Conv3d(dim_person, self.dim_inner, 1, bias)
+            init_layer(self.hand_dim_reduce, conv_init_std, bias)
             
                         
     def forward(self, person, person_boxes, obj_feature, object_boxes, hand_feature, hand_boxes, mem_feature, person_pooled, ia_feature, phase):
         # RGB stream
-        if phase == "rgb":
+        if phase in ["rgb", "rgb_fuse"]:
             query, person_key, object_key, hand_key, mem_key = self._reduce_dim(person, person_boxes, obj_feature, object_boxes, hand_feature, hand_boxes,
                                                                     mem_feature, phase)
+            ia_feature, res_person, res_object, res_keypoint = self._aggregate(person_boxes, query, person_key, object_key, hand_key, mem_key)
+            
+            if phase == "rgb":
+                return ia_feature, res_person, res_object, res_keypoint
+            elif phase == "rgb_fuse":
+                return self._fuse_rgb_mem(ia_feature, mem_key)
+            
 
-            return self._aggregate(person_boxes, query, person_key, object_key, hand_key, mem_key)
         # Pose stream
         else:
             person_key = person_pooled
@@ -220,7 +230,6 @@ class HITStructure(nn.Module):
             query, _, object_key, hand_key, mem_key = self._reduce_dim(person, person_boxes, obj_feature, person_boxes, hand_feature, person_boxes,
                                                                     mem_feature, phase)
             pose_feats, _, _, _ = self._aggregate(person_boxes, query, person_key, object_key, hand_key, mem_key)
-            
             # Attentive Fusion and Temporal Interaction
             return self._fuse(ia_feature, pose_feats, mem_key)
             
@@ -334,7 +343,11 @@ class HITNet(SerialHITStructure):
     def __init__(self, dim_person, dim_mem, dim_out, structure_cfg):
         super(HITNet, self).__init__(dim_person, dim_mem, dim_out, structure_cfg)
         self.dense_params = nn.ParameterDict()
-        for idx in range(2, len(self.I_block_list)):
+        # for idx in range(1, len(self.I_block_list)):
+        idx_min = 2
+        if not self.has_O:
+            idx_min -= 1
+        for idx in range(1, len(self.I_block_list)):
             init_tensor = torch.full((idx, self.dim_inner, 1, 1, 1), 
                                      -5 * math.log(10), dtype=torch.float32)
             init_tensor[idx - 1, ...] = 0
@@ -353,30 +366,49 @@ class HITNet(SerialHITStructure):
 
     # Lateral units. They will serve as inputs to the intra-modality aggregator
     def aggregate_lateral(self, I_block_object, I_block_hand, I_block_memory, query, object_key, hand_key, mem_key):
-        object_feat= I_block_object(query, object_key)
-        hand_feat = I_block_hand(query, hand_key)
-        mem_feat = I_block_memory(query, mem_key)
+        object_feat = hand_feat = mem_feat = None
+        if I_block_object is not None:
+            object_feat = I_block_object(query, object_key)
+        if I_block_hand is not None:
+            hand_feat = I_block_hand(query, hand_key)
+        if I_block_memory is not None:
+            mem_feat = I_block_memory(query, mem_key)
         return object_feat, mem_feat, hand_feat
 
     def _aggregate(self, person_boxes, query, person_key, object_key, hand_key, mem_key):
         block_count = dict()
         history_query = []
 
+        idx_min = 2
+        idx_min_blockm = 7
+        if not self.has_O:
+            idx_min -= 1
+            idx_min_blockm -= 2
+        if not self.has_H:
+            idx_min -= 1
+            idx_min_blockm -= 2
         for idx, block_type in enumerate(self.I_block_list):
             block_count[block_type] = block_count.get(block_type, 0) + 1
             name = block_type + "_block_{}".format(block_count[block_type])
             I_block = getattr(self, name)
 
             # Initialize the lateral units
+            I_block_object = I_block_hand = I_block_memory = None
             name_object = 'O' + "_block_{}".format(block_count[block_type])
-            I_block_object = getattr(self, name_object)
+            if hasattr(self, name_object):
+                I_block_object = getattr(self, name_object)
+            else:
+                object_message = None
             name_hand = 'H' + "_block_{}".format(block_count[block_type])
-            I_block_hand = getattr(self, name_hand)
+            if hasattr(self, name_hand):
+                I_block_hand = getattr(self, name_hand)
+            else:
+                hand_message = None
             name_memory = 'M' + "_block_{}".format(block_count[block_type])
-            I_block_memory = getattr(self, name_memory)
+            if hasattr(self, name_memory):            
+                I_block_memory = getattr(self, name_memory)
             
-
-            if idx >= 2:
+            if idx >= idx_min:
                 query = torch.stack(history_query, dim=1)
                 query = torch.sum(query * self.softmax(self.dense_params[str(idx)]), dim=1)
                 person_key = query
@@ -387,10 +419,12 @@ class HITNet(SerialHITStructure):
             elif block_type == "O":
                 P_O, P_M, P_K = self.aggregate_lateral(I_block_object, I_block_hand, I_block_memory, 
                                                        query, object_key, hand_key, mem_key)
-                if P_M.shape[1] == self.dim_out:
-                    P_M = self.conv_reduce(P_M)
-                
-                query = torch.stack([query, P_O, P_M, P_K], dim=1)
+                if P_M is not None:
+                    if P_M.shape[1] == self.dim_out:
+                        P_M = self.conv_reduce(P_M)
+                    
+                concat = [x for x in [query, P_O, P_M, P_K] if x is not None]
+                query = torch.stack(concat, dim=1)
                 query = torch.sum(query * self.softmax(self.dense_params_lateral), dim=1)
                 query = I_block(query, object_key)
                 object_message = query
@@ -398,29 +432,31 @@ class HITNet(SerialHITStructure):
             elif block_type == "H": 
                 P_O, P_M, P_K = self.aggregate_lateral(I_block_object, I_block_hand, I_block_memory, 
                                                        query, object_key, hand_key, mem_key)
-                if P_M.shape[1] == self.dim_out:
-                    P_M = self.conv_reduce(P_M)
-                
-                query = torch.stack([query, P_O, P_M, P_K], dim=1)
+                if P_M is not None:
+                    if P_M.shape[1] == self.dim_out:
+                        P_M = self.conv_reduce(P_M)
+                if P_K is not None:
+                    if P_K.shape[1] == self.dim_out:
+                        P_K = self.conv_reduce(P_K)
+                    
+                concat = [x for x in [query, P_O, P_M, P_K] if x is not None]
+                query = torch.stack(concat, dim=1)
                 query = torch.sum(query * self.softmax(self.dense_params_lateral), dim=1)
-
-
                 query = I_block(query, hand_key)
                 hand_message = query
 
             elif block_type == "M": 
-                
                 P_O, P_M, P_K = self.aggregate_lateral(I_block_object, I_block_hand, I_block_memory, 
                                                        query, object_key, hand_key, mem_key)
                 if P_M.shape[1] == self.dim_out:
                     P_M = self.conv_reduce(P_M)
                 
-                query = torch.stack([query, P_O, P_M, P_K], dim=1)
+                concat = [x for x in [query, P_O, P_M, P_K] if x is not None]
+                query = torch.stack(concat, dim=1)
                 query = torch.sum(query * self.softmax(self.dense_params_lateral), dim=1)
-                if idx != 7:
+                if idx != idx_min_blockm:
                     query = I_block(query, mem_key)
             
-
             person_key = query
             history_query.append(query)
                 
@@ -438,7 +474,13 @@ class HITNet(SerialHITStructure):
         
         return query
 
-
+    def _fuse_rgb_mem(self, rgb, mem_key):
+        name_memory = 'M' + "_block_2"
+        I_block_memory = getattr(self, name_memory)
+        # Temporal Interaction
+        query = I_block_memory(rgb, mem_key)
+        
+        return query
 
 def separate_roi_per_person(proposals, things, other_proposals, max_things):
     """

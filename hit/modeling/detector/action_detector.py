@@ -22,6 +22,9 @@ class ActionDetector(nn.Module):
         if self.training:
             return detector_losses, loss_weight, detector_metrics, result
 
+        if len(detector_losses) > 0:
+            return detector_losses, loss_weight, detector_metrics, result
+
         return result
 
     def c2_weight_mapping(self):

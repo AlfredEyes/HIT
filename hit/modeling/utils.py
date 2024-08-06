@@ -32,17 +32,23 @@ def prepare_pooled_feature(x_pooled, boxes, detach=True):
     image_shapes = [box.size for box in boxes]
     boxes_per_image = [len(box) for box in boxes]
     box_tensors = [a.bbox for a in boxes]
+    labels_exist = False
+    if "labels" in list(boxes[0].extra_fields.keys()):
+        labels_exist = True
+        labels = [b.extra_fields["labels"] for b in boxes]
 
     # print(x_pooled.shape, len(boxes_per_image))
     if detach:
         x_pooled = x_pooled.detach()
+
     pooled_feature = x_pooled.split(boxes_per_image, dim=0)
 
     boxes_result = []
-    for feature_per_image, boxes_per_image, image_shape in zip(
-            pooled_feature, box_tensors, image_shapes
-    ):
+    for i, (feature_per_image, boxes_per_image, image_shape) in enumerate(zip(
+            pooled_feature, box_tensors, image_shapes)):
         boxlist = BoxList(boxes_per_image, image_shape, mode="xyxy")
         boxlist.add_field("pooled_feature", feature_per_image)
+        if labels_exist:
+            boxlist.add_field("labels", labels[i])
         boxes_result.append(boxlist)
     return boxes_result
