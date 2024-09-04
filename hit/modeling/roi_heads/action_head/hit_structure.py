@@ -236,8 +236,6 @@ class HITStructure(nn.Module):
     
 
     def _reduce_dim(self, person, person_boxes, obj_feature, object_boxes, hand_feature, hand_boxes, mem_feature, phase):
-        print(person.shape)
-        print(type(person))
         query = self.person_dim_reduce(person)
         query = self.reduce_dropout(query)
         n = query.size(0)

@@ -120,13 +120,13 @@ class MLPFeatureExtractor(nn.Module):
             # Pose  start     
             pose_data = torch.cat([k.extra_fields['keypoints'].to(k.bbox.device) for k in keypoints if 'keypoints' in k.extra_fields], dim=0).unsqueeze(1)
            
-            if pose_data.shape[0] == person_pooled.shape[0]:
-                self.pose_transformer = self.pose_transformer.to(keypoints[0].bbox.device)
-                pose_out = self.pose_transformer(pose_data)
-                pose_out = pose_out.view(-1, self.pose_out).unsqueeze(2).unsqueeze(2).unsqueeze(2)
+            # if pose_data.shape[0] == person_pooled.shape[0]:
+            #     self.pose_transformer = self.pose_transformer.to(keypoints[0].bbox.device)
+            #     pose_out = self.pose_transformer(pose_data)
+            #     pose_out = pose_out.view(-1, self.pose_out).unsqueeze(2).unsqueeze(2).unsqueeze(2)
                 
-            else:
-                pose_out = None
+            # else:
+            pose_out = None
             # Pose end
                 
         if part_forward == 0:
@@ -138,14 +138,18 @@ class MLPFeatureExtractor(nn.Module):
             mem_len = self.config.MODEL.HIT_STRUCTURE.LENGTH
             mem_rate = self.config.MODEL.HIT_STRUCTURE.MEMORY_RATE
             use_penalty = self.config.MODEL.HIT_STRUCTURE.PENALTY
-            memory_person, memory_person_boxes = self.get_memory_feature(extras["person_pool"], extras, mem_len, mem_rate,
-                                                                       self.max_feature_len_per_sec, tsfmr.dim_others,
-                                                                       person_pooled, proposals, use_penalty)
+            memory_person = None
+            if "M" in self.config.MODEL.HIT_STRUCTURE.I_BLOCK_LIST:
+                memory_person, memory_person_boxes = self.get_memory_feature(extras["person_pool"], extras, mem_len, mem_rate,
+                                                                        self.max_feature_len_per_sec, tsfmr.dim_others,
+                                                                        person_pooled, proposals, use_penalty)
             # RGB stream
             ia_feature, res_person, res_object, res_keypoint = self.hit_structure(person_pooled, proposals, object_pooled, objects, hands_pooled, keypoints, memory_person, None, None, phase="rgb")
+            # ia_feature = self.hit_structure(person_pooled, proposals, object_pooled, objects, hands_pooled, keypoints, memory_person, None, None, phase="rgb_fuse")
             # pose
-            pose_ia_feature = self.hit_structure_pose(pose_out, proposals, res_object, objects, res_keypoint, keypoints, memory_person, res_person, ia_feature, phase="pose")
-            x_after = self.fusion(x_after, pose_ia_feature, self.config.MODEL.HIT_STRUCTURE.FUSION)
+            # pose_ia_feature = self.hit_structure_pose(pose_out, proposals, res_object, objects, res_keypoint, keypoints, memory_person, res_person, ia_feature, phase="pose")
+            # x_after = self.fusion(x_after, pose_ia_feature, self.config.MODEL.HIT_STRUCTURE.FUSION)
+            x_after = self.fusion(x_after, ia_feature, self.config.MODEL.HIT_STRUCTURE.FUSION)
         x_after = x_after.view(x_after.size(0), -1)
         
         x_after = F.relu(self.fc1(x_after))
