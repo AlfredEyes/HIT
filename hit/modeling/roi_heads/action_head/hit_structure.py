@@ -362,7 +362,8 @@ class HITNet(SerialHITStructure):
         self.conv_reduce = nn.Conv3d(dim_mem, self.dim_inner, 1, bias=False)
         
 
-        self.non_local = NL(hidden_dim = 2*self.dim_inner, out_dim = self.dim_inner)
+        # self.non_local = NL(hidden_dim = 2*self.dim_inner, out_dim = self.dim_inner)
+        self.non_local = NL(hidden_dim = 4608, out_dim = self.dim_inner)
 
     # Lateral units. They will serve as inputs to the intra-modality aggregator
     def aggregate_lateral(self, I_block_object, I_block_hand, I_block_memory, query, object_key, hand_key, mem_key):
