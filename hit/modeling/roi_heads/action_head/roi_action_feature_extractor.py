@@ -32,24 +32,26 @@ class MLPFeatureExtractor(nn.Module):
         head_cfg = config.MODEL.ROI_ACTION_HEAD
         resolution = head_cfg.POOLER_RESOLUTION
         self.pooler = make_3d_pooler(head_cfg)
+        slow_fast_pooler = [0.1, 0.0625, 0.04]
+        x3d_pooler = [0.05, 0.03125, 0.02]
+        choosen_pooler = slow_fast_pooler
         self.pooler2 = Pooler3d(
                         output_size=(resolution, resolution),
-                        scale=0.1,
+                        scale=choosen_pooler[0],
                         sampling_ratio=0,
                         pooler_type="align3d",
                     )
         self.pooler3 = Pooler3d(
                 output_size=(resolution, resolution),
-                scale=0.04,
+                scale=choosen_pooler[-1],
                 sampling_ratio=0,
                 pooler_type="align3d",
             )
 
         self.max_pooler = nn.MaxPool3d((1, resolution, resolution))
-        representation_size = head_cfg.MLP_HEAD_DIM
-        out_channel = 256
+        in_channels =out_channel = representation_size = 256
         self.convT = nn.Sequential(nn.ConvTranspose3d(
-            in_channels=256,
+            in_channels=in_channels,
             out_channels=out_channel,
             kernel_size=(4, 1, 1),  # Kernel size for time (4), spatial (1x1)
             stride=(2, 1, 1),       # Stride for time (2), spatial (1x1)
@@ -58,29 +60,35 @@ class MLPFeatureExtractor(nn.Module):
             nn.BatchNorm3d(out_channel),
             nn.LeakyReLU(negative_slope=0.2)
         )
+
         self.fcb1 = nn.Sequential(
             nn.Linear(out_channel * 3 * 16 * 7 * 7, representation_size),
             nn.BatchNorm1d(representation_size),
             nn.ReLU(),
-            nn.Linear(representation_size * 1, representation_size),
+            nn.Dropout(p=0.5)
+        )
+        self.fcbhands = nn.Sequential(
+            nn.Linear(out_channel * 3 * 8 * 7 * 7, representation_size),
             nn.BatchNorm1d(representation_size),
             nn.ReLU(),
             nn.Dropout(p=0.5)
         )
 
+        self.proj_hands = nn.Linear(config.MODEL.HIT_STRUCTURE.DIM_OUT * 2, config.MODEL.HIT_STRUCTURE.DIM_OUT)
         self.pose_out = config.MODEL.HIT_STRUCTURE.DIM_INNER
-        self.hit_structure_of = None
         if config.MODEL.HIT_STRUCTURE.ACTIVE:
             self.max_feature_len_per_sec = config.MODEL.HIT_STRUCTURE.MAX_PER_SEC
             self.hit_structure = make_hit_structure(config, dim_in)
-            if config.MODEL.OPTICAL_FLOW:
-                self.hit_structure_of = make_hit_structure(config, 1024)
-
 
         fc1_dim_in = dim_in
         if config.MODEL.HIT_STRUCTURE.ACTIVE and (config.MODEL.HIT_STRUCTURE.FUSION == "concat"):
             fc1_dim_in += config.MODEL.HIT_STRUCTURE.DIM_OUT
 
+        self.fc2 = nn.Linear(representation_size, representation_size)
+
+        for l in [self.proj_hands, self.fc2]:
+            nn.init.kaiming_uniform_(l.weight, a=1)
+            nn.init.constant_(l.bias, 0)
         self.dim_out = representation_size
 
     def roi_pooling(self, slow_features, fast_features, proposals):
@@ -88,22 +96,24 @@ class MLPFeatureExtractor(nn.Module):
             if self.config.MODEL.ROI_ACTION_HEAD.MEAN_BEFORE_POOLER:
                 slow_features = slow_features.mean(dim=2, keepdim=True)
             slow_x = self.pooler(slow_features, proposals)
-            # if not self.config.MODEL.ROI_ACTION_HEAD.MEAN_BEFORE_POOLER:
-            #     slow_x = slow_x.mean(dim=2, keepdim=True)
             x = slow_x
         if fast_features is not None:
             if self.config.MODEL.ROI_ACTION_HEAD.MEAN_BEFORE_POOLER:
                 fast_features = fast_features.mean(dim=2, keepdim=True)
             fast_x = self.pooler(fast_features, proposals)
-            # if not self.config.MODEL.ROI_ACTION_HEAD.MEAN_BEFORE_POOLER:
-            #     fast_x = fast_x.mean(dim=2, keepdim=True)
             x = fast_x
 
         if slow_features is not None and fast_features is not None:
             x = torch.cat([slow_x, fast_x], dim=1)
         return x
 
-    
+    def roi_3pooling(self, fast_features, proposals):
+        x1 = self.pooler(fast_features, proposals)
+        x2 = self.pooler2(fast_features, proposals)
+        x3 = self.pooler3(fast_features, proposals)
+        person_pooled = torch.cat([x1, x2, x3], dim=1)
+        return person_pooled
+
     def max_pooling_zero_safe(self, x):
         if x.size(0) == 0:
             _, c, t, h, w = x.size()
@@ -131,23 +141,14 @@ class MLPFeatureExtractor(nn.Module):
                 keypoints = keypoints[0]
         else:
             fast_features_ = self.convT(fast_features)
-            x = self.roi_pooling(slow_features, fast_features_, proposals)
-            x2 = self.pooler2(fast_features_, proposals)
-            x3 = self.pooler3(fast_features_, proposals)
-            person_pooled = torch.cat([x, x2, x3], dim=1)
+            person_pooled = self.roi_3pooling(fast_features_, proposals)
             person_pooled = person_pooled.view(person_pooled.size(0), -1) #bs * 256 x 8  
             person_pooled = self.fcb1(person_pooled)     # Couche linéaire
             person_pooled = person_pooled[..., None, None, None]
-            if self.hit_structure_of is not None:
-                x_of = self.roi_pooling(None, of_features, proposals)
-                person_pooled_of = self.max_pooler(x_of)
-
 
             if has_object(self.config.MODEL.HIT_STRUCTURE):
                 object_pooled = self.roi_pooling(slow_features, fast_features, objects)
                 object_pooled = self.max_pooling_zero_safe(object_pooled)
-                # TODO : same size object_pooled and person_pooled bs x 2304 
-                # si que 8 / 32 alors comment fait il le mapping? a qui appartient les 8?
             else:
                 object_pooled = None
             hand_boxlists = []
@@ -166,12 +167,16 @@ class MLPFeatureExtractor(nn.Module):
                     else:
                         hand_boxlists.append(BoxList(torch.zeros((0, 4), dtype=k.bbox.dtype, device=k.bbox.device), k.size, mode="xyxy"))
                 proposals_hand = [box.extend((0.2, 0.8)) for box in hand_boxlists]
-                hands_pooled = self.roi_pooling(slow_features, fast_features, proposals_hand)
-                hands_pooled = self.max_pooling_zero_safe(hands_pooled)
+
+                hands_pooled = self.roi_3pooling(fast_features, proposals_hand)
+                hands_pooled = hands_pooled.view(hands_pooled.size(0), -1) #bs * 256 x 8  
+                hands_pooled = self.fcbhands(hands_pooled)
+                hands_pooled = hands_pooled[..., None, None, None]
+            
                 
             else:
                 hands_pooled = None
-
+            
             # else:
             pose_out = None
             # Pose end
@@ -192,19 +197,10 @@ class MLPFeatureExtractor(nn.Module):
                                                                         person_pooled, proposals, use_penalty)
                 # RGB stream
             ia_feature, res_person, res_object, res_keypoint = self.hit_structure(person_pooled, proposals, object_pooled, objects, hands_pooled, keypoints, memory_person, None, None, phase="rgb")
-            # ia_feature = self.hit_structure(person_pooled, proposals, object_pooled, objects, hands_pooled, keypoints, memory_person, None, None, phase="rgb_fuse")
-            # pose
-            # pose_ia_feature = self.hit_structure_pose(pose_out, proposals, res_object, objects, res_keypoint, keypoints, memory_person, res_person, ia_feature, phase="pose")
-            if self.hit_structure_of is not None:
-                # breakpoint()
-                of_ia_feature = self.hit_structure_of(person_pooled_of, proposals, res_object, objects, res_keypoint, keypoints, memory_person, res_person, ia_feature, phase="pose")
-                x_after = self.fusion(x_after, of_ia_feature, self.config.MODEL.HIT_STRUCTURE.FUSION)
-            else:
-                x_after = self.fusion(x_after, ia_feature, self.config.MODEL.HIT_STRUCTURE.FUSION)
-        # x_after = x_after.view(x_after.size(0), -1)
+            x_after = self.fusion(x_after, ia_feature, self.config.MODEL.HIT_STRUCTURE.FUSION)
+        x_after = x_after.view(x_after.size(0), -1)
         
-        # x_after = F.relu(self.fc1(x_after))
-        # x_after = F.relu(self.fc2(x_after))
+        x_after = F.relu(self.fc2(x_after))
 
         return x_after, person_pooled, object_pooled, hands_pooled, pose_out
 
