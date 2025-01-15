@@ -60,7 +60,6 @@ class MLPFeatureExtractor(nn.Module):
             nn.BatchNorm3d(out_channel),
             nn.LeakyReLU(negative_slope=0.2)
         )
-
         self.fcb1 = nn.Sequential(
             nn.Linear(out_channel * 3 * 16 * 7 * 7, representation_size),
             nn.BatchNorm1d(representation_size),
@@ -73,9 +72,9 @@ class MLPFeatureExtractor(nn.Module):
             nn.ReLU(),
             nn.Dropout(p=0.5)
         )
-
         self.proj_hands = nn.Linear(config.MODEL.HIT_STRUCTURE.DIM_OUT * 2, config.MODEL.HIT_STRUCTURE.DIM_OUT)
         self.pose_out = config.MODEL.HIT_STRUCTURE.DIM_INNER
+        self.hit_structure_of = None
         if config.MODEL.HIT_STRUCTURE.ACTIVE:
             self.max_feature_len_per_sec = config.MODEL.HIT_STRUCTURE.MAX_PER_SEC
             self.hit_structure = make_hit_structure(config, dim_in)
@@ -149,6 +148,8 @@ class MLPFeatureExtractor(nn.Module):
             if has_object(self.config.MODEL.HIT_STRUCTURE):
                 object_pooled = self.roi_pooling(slow_features, fast_features, objects)
                 object_pooled = self.max_pooling_zero_safe(object_pooled)
+                # TODO : same size object_pooled and person_pooled bs x 2304 
+                # si que 8 / 32 alors comment fait il le mapping? a qui appartient les 8?
             else:
                 object_pooled = None
             hand_boxlists = []
