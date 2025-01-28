@@ -33,7 +33,7 @@ class Tracker(BaseDetector):
         self.tracker_opt = opt
         self.model_cfg = cfg.get('CONFIG', 'detector/tracker/cfg/yolov3.cfg')
         self.model_weights = cfg.get('WEIGHTS', 'detector/tracker/data/jde.1088x608.uncertainty.pt')
-        self.img_size = cfg.get('IMG_SIZE', (1088, 608))
+        self.img_size = cfg.get('IMG_SIZE', (400, 400))
         self.nms_thres = opt.tracker_nms_thres
         self.confidence = opt.tracker_box_thres
         self.max_time_lost = cfg.get('BUFFER_SIZE', 30) # buffer

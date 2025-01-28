@@ -10,6 +10,9 @@ _C.MODEL = CN()
 
 _C.MODEL.WEIGHT = ""
 
+_C.MODEL.NUM_CLASSES = 2 
+
+
 # -----------------------------------------------------------------------------
 # ROI action head config.
 # -----------------------------------------------------------------------------
@@ -71,7 +74,7 @@ _C.INPUT.PIXEL_STD = [57.375, 57.375, 57.375]
 # Convert image to BGR format (for Caffe2 models)
 _C.INPUT.TO_BGR = False
 
-_C.INPUT.FRAME_NUM = 32
+_C.INPUT.FRAME_NUM = 16
 _C.INPUT.FRAME_SAMPLE_RATE = 2
 _C.INPUT.TAU = 8
 _C.INPUT.ALPHA = 8
@@ -113,7 +116,7 @@ _C.MODEL.BACKBONE = CN()
 
 # The backbone conv body to use
 # Available backbone conv-body should be registered in modeling.backbone.backbone.py
-_C.MODEL.BACKBONE.CONV_BODY = "Slowfast-Resnet50"
+_C.MODEL.BACKBONE.CONV_BODY = "Slowfast-Resnet50" #? "Slowfast-Resnet50", "hiera"
 
 _C.MODEL.BACKBONE.FROZEN_BN = False
 
@@ -134,7 +137,7 @@ _C.MODEL.BACKBONE.I3D.CONV3_GROUP_NL = False
 # Slowfast options
 # ---------------------------------------------------------------------------- #
 _C.MODEL.BACKBONE.SLOWFAST = CN()
-_C.MODEL.BACKBONE.SLOWFAST.BETA = 1./8
+_C.MODEL.BACKBONE.SLOWFAST.BETA = 1./16
 _C.MODEL.BACKBONE.SLOWFAST.LATERAL = 'tconv'
 _C.MODEL.BACKBONE.SLOWFAST.SLOW = CN()
 _C.MODEL.BACKBONE.SLOWFAST.SLOW.ACTIVE = True

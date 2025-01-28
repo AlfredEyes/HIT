@@ -1,5 +1,5 @@
 from hit.modeling import registry
-from . import slowfast, i3d
+from . import slowfast, i3d, hiera
 
 @registry.BACKBONES.register("Slowfast-Resnet50")
 @registry.BACKBONES.register("BERT")
@@ -22,3 +22,20 @@ def build_backbone(cfg):
             cfg.MODEL.BACKBONE.CONV_BODY
         )
     return registry.BACKBONES[cfg.MODEL.BACKBONE.CONV_BODY](cfg)
+
+#! Hiera
+@registry.BACKBONES.register("hiera")
+def build_hiera_backbone(cfg):
+    model = hiera.HieraBackbone123(cfg)
+    return model
+
+@registry.BACKBONES.register("hiera-tiny") 
+def build_hiera_tiny_backbone(cfg):
+    model = hiera.HieraBackbone123(cfg)
+    return model
+
+
+
+
+
+
