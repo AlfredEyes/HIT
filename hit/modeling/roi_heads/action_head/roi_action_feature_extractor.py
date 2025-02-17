@@ -164,7 +164,7 @@ class MLPFeatureExtractor(nn.Module):
                         x1 = kk[:,[0,2]].max(dim=1).values
                         y1 = kk[:,[1,3]].max(dim=1).values
                         kk = torch.stack((x0, y0, x1, y1), dim=1)
-                        hand_boxlists.append(BoxList(kk, k.size, mode="xyxy"))
+                        hand_boxlists.append(BoxList(kk, k.size, mode="xyxy", dtype=k.bbox.dtype))
                     else:
                         hand_boxlists.append(BoxList(torch.zeros((0, 4), dtype=k.bbox.dtype, device=k.bbox.device), k.size, mode="xyxy"))
                 proposals_hand = [box.extend((0.2, 0.8)) for box in hand_boxlists]

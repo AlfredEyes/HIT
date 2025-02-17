@@ -34,7 +34,7 @@ class PostProcessor(nn.Module):
         return results
 
     def prepare_boxlist(self, boxes, scores, image_shape):
-        boxlist = BoxList(boxes, image_shape, mode="xyxy")
+        boxlist = BoxList(boxes, image_shape, mode="xyxy", dtype=boxes.dtype)
         boxlist.add_field("scores", scores)
         return boxlist
 

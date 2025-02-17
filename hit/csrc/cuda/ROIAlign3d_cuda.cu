@@ -279,7 +279,7 @@ at::Tensor ROIAlign3d_forward_cuda(const at::Tensor& input,
     return output;
   }
 
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "ROIAlign3d_forward", [&] {
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "ROIAlign3d_forward", [&] {
     RoIAlign3dForward<scalar_t><<<grid, block, 0, stream>>>(
          output_size,
          input.contiguous().data_ptr<scalar_t>(),

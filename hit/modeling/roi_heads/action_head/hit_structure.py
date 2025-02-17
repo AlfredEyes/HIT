@@ -494,11 +494,12 @@ def separate_roi_per_person(proposals, things, other_proposals, max_things):
     res = []
     _, c, t, h, w = things.size()
     device = things.device
+    dtype = things.dtype
     index = 0
     for i, (person_box, other_box) in enumerate(zip(proposals, other_proposals)):
         person_num = len(person_box)
         other_num = len(other_box)
-        tmp = torch.zeros((person_num, max_things, c, t, h, w), device=device)
+        tmp = torch.zeros((person_num, max_things, c, t, h, w), device=device, dtype=dtype)
         if other_num > max_things:
             idx = torch.randperm(other_num)[:max_things]
             tmp[:, :max_things] = things[index:index + other_num][idx]

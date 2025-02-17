@@ -133,7 +133,7 @@ std::tuple<at::Tensor, at::Tensor> ROIPool3d_forward_cuda(const at::Tensor& inpu
     return std::make_tuple(output, argmax);
   }
 
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "ROIPool3d_forward", [&] {
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(input.scalar_type(), "ROIPool3d_forward", [&] {
     RoIPool3dFForward<scalar_t><<<grid, block, 0, stream>>>(
          output_size,
          input.contiguous().data_ptr<scalar_t>(),
